@@ -1,5 +1,4 @@
 import pygame
-import sys
 import numpy as np
 
 class TicTacToeGUI:
@@ -27,19 +26,31 @@ class TicTacToeGUI:
         # Q learning
         self.observation_space_size = 3 ** (self.size ** 2)
         self.action_space_size = self.size ** 2
-        self.q_table_1 = np.zeros((self.observation_space_size, self.action_space_size))
-        self.q_table_2 = np.zeros((self.observation_space_size, self.action_space_size))
-        self.epsilon = 1.0
+        self.q_table_1 = np.zeros((self.observation_space_size, self.action_space_size)) # start AI
+        self.q_table_2 = np.zeros((self.observation_space_size, self.action_space_size)) # second AI
+        self.epsilon = 1.0 # full exploration
 
     def draw_board(self):
+        """
+        Draws an empty board
+        :return: None
+        """
         for x in range(1, self.size):
             pygame.draw.line(self.screen, self.line_color, (x * self.cell_size, 0), (x * self.cell_size, self.height), 2)
             pygame.draw.line(self.screen, self.line_color, (0, x * self.cell_size), (self.width, x * self.cell_size), 2)
 
-    def mark_square(self, row, col):
+    def mark_square(self, row, col, draw = False):
+        """
+        Marks move on internal memory
+        :param row: int
+        :param col: int
+        :param draw: Bool
+        :return: None
+        """
         if self.board[row][col] == '' and not self.game_over:
             self.board[row][col] = self.current_turn
-            self.draw_mark(row, col)
+            if draw:
+                self.draw_mark(row, col)
             if self.check_winner(row, col):
                 self.game_over = True
             else:
@@ -47,6 +58,12 @@ class TicTacToeGUI:
                 self.moves_played += 1
 
     def draw_mark(self, row, col):
+        """
+        Draws a move on the board
+        :param row:
+        :param col:
+        :return: None
+        """
         x = col * self.cell_size
         y = row * self.cell_size
         if self.current_turn == 'X':
@@ -56,6 +73,13 @@ class TicTacToeGUI:
             pygame.draw.circle(self.screen, (0, 255, 0), (x + self.cell_size // 2, y + self.cell_size // 2), self.cell_size // 2 - 15, 15)
 
     def check_winner(self, row, col):
+        """
+        Inputs the last move, checks squares to every direction.
+        If enough squares in row are the same, the move was winning
+        :param row: int
+        :param col: int
+        :return: None
+        """
         directions = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
         for direction in directions:
             count = 0
@@ -70,6 +94,10 @@ class TicTacToeGUI:
                 return True
 
     def run_game(self):
+        """
+        Lets the user play for both teams
+        :return:
+        """
         running = True
         while running:
             for event in pygame.event.get():
@@ -84,27 +112,60 @@ class TicTacToeGUI:
             pygame.display.update()
         pygame.quit()
 
-    def sample_actions(self, actions):
+    def sample_actions(self, actions, turn):
+        """
+        Takes actions,
+        if self.epsilon is high is likely to explore/take random actions
+        if self.epsilon is low is likely to choose the best action
+        :param actions: list[int]
+            indices of the possible actions
+        :param turn: int
+            tells which q-table to use
+            1 -> start
+            0 -> second
+        :return: int
+            The action taken
+        """
         if np.random.random() < self.epsilon:
             return np.random.choice(actions)
         else:
-            return np.argmax(self.q_table_1[self.state_to_index()])
+            if turn == 1:
+                col = self.q_table_1[self.state_to_index()]
+                valid = [(col[i], i) for i in actions]
+                best = max(valid)[1]
+                return best#np.argmax(self.q_table_1[self.state_to_index()])
+            else:
+                col = self.q_table_2[self.state_to_index()]
+                valid = [(col[i], i) for i in actions]
+                best = max(valid)[1]
+                return best
 
     def train(self, iterations, learning_rate = 0.9, discount_rate = 0.9, decay_rate_normalized = 1):
         decay_rate = decay_rate_normalized / (iterations * 5)
+        self.epsilon = 1.0
         for episode in range(iterations):
             prev_states = [self.state_to_index(), self.state_to_index()]
+            #                   second                   first
+            prev_action = 0
             t = 1
             while not self.game_over:
+
                 update = self.q_table_1 if self.current_turn == 'X' else self.q_table_2
                 action_space = self.action_space_get()
                 if len(action_space) == 0:
                     break
-                action = self.sample_actions(action_space)
+                action = self.sample_actions(action_space, t)
                 new_state, reward, game_over = self.step(action)
                 update[prev_states[t]][action] = update[prev_states[t]][action] + learning_rate * (reward[t] + discount_rate * np.max(update[new_state]) - update[prev_states[t]][action])
-                prev_states[t] = new_state
-                t = (t+1)%2
+                # reward of prev action: Q[prev][action] = Q[prev][action] + alpha * (reward[prev] + gamma * max(Q[new]) - Q[prev][action])
+                if reward[t] == 1:
+                    loser = self.q_table_1 if self.current_turn == 'X' else self.q_table_2
+                    loser[prev_states[(t+1)%2]][prev_action] = -1
+                elif len(action_space) == 1:
+                    update[prev_states[t]][action] = 0
+                    self.q_table_2[prev_states[(t+1)%2]][prev_action] = 0
+                prev_states[t], prev_action = new_state, action
+                t = (t+1) % 2
             self.reset()
             self.epsilon = np.exp(-decay_rate * episode)
 
@@ -130,7 +191,7 @@ class TicTacToeGUI:
         num = 0
         for i, row in enumerate(self.board):
             for j, sq in enumerate(row):
-                num += (self.size*i+j)*to_num[sq]
+                num += np.power(3, self.size*i+j)*to_num[sq]
         return num
 
     def observation_space_size(self):
@@ -151,7 +212,7 @@ class TicTacToeGUI:
     def action_space_size(self):
         return self.size**2
 
-    def step(self, action):
+    def step(self, action, draw=False):
         """
         Plays the action in the board
         :param action: int
@@ -159,34 +220,84 @@ class TicTacToeGUI:
         """
         row = action // self.size
         col = action % self.size
-        self.mark_square(row, col)
+        self.mark_square(row, col, draw)
         return self.state_to_index(), self.reward(), self.game_over
 
     def reward(self):
         if self.game_over:
-            if self.current_turn == 'X':
+            if self.current_turn == 'O':
                 return [1, -1]
             else:
                 return [-1, 1]
         else:
             return [0, 0]
 
-    def reset(self):
+    def reset(self, view=False):
         self.board = [['' for _ in range(self.size)] for _ in range(self.size)]
         self.current_turn = 'X'
         self.moves_played = 0
         self.game_over = False
+        if view:
+            self.screen.fill((255, 255, 255))
+            self.draw_board()
 
-    def initialize_Q_table(self):
-        self.Q_table = np.zeros((self.observation_space_size(), self.action_space_size()))
+    def play_against_trained(self, start=True):
+        self.epsilon = 0 # never explore
+        self.reset(True)
+        #table = self.q_table_2 if start else self.q_table_1
+        turn_ai = 1 if start else 0
+        if not start:
+            self.step(self.sample_actions(self.action_space_get(), turn_ai))
+
+        print(f"Corresponding values\n"
+              f"{self.q_table_2[self.state_to_index()][0:3]}"
+              f"\n{self.q_table_2[self.state_to_index()][3:6]}"
+              f"\n{self.q_table_2[self.state_to_index()][6:9]}")
+
+        running = True
+        while running:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+                if event.type == pygame.MOUSEBUTTONDOWN and not self.game_over:
+                    mouseX = event.pos[0] // self.cell_size
+                    mouseY = event.pos[1] // self.cell_size
+                    self.mark_square(mouseY, mouseX, True)
+
+                    if self.game_over:
+                        break
+
+                    actions = self.action_space_get()
+
+                    if len(actions) == 0:
+                        break
+
+                    print("Actions: ", actions, turn_ai)
+
+                    print(f"Corresponding values\n"
+                          f"{self.q_table_1[self.state_to_index()][0:3]}"
+                          f"\n{self.q_table_1[self.state_to_index()][3:6]}"
+                          f"\n{self.q_table_1[self.state_to_index()][6:9]}")
+
+                    action = self.sample_actions(actions, turn_ai)
+                    print("Chosen: ", action)
+                    print(f"Current state: {self.state_to_index()}")
+                    self.step(action, True)
+            pygame.display.update()
+        pygame.quit()
+
+    def watch_ai_play(self):
+        pass
 
 
 # To play a 3x3 game where 3 marks in a row are needed to win
 game = TicTacToeGUI(3, 3)
-game.train(1000)
+game.train(50000)
+game.play_against_trained()
 #game.run_game()
 
 
-# TODO: implement play after training
+# TODO: implement play after training CHECK
 # TODO: implement watch AI play
 # TODO: improve data-structures (use mode numpy?)
+# TODO: do something when game ends
