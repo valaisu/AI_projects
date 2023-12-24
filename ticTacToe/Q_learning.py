@@ -140,14 +140,15 @@ class TicTacToeGUI:
                 best = max(valid)[1]
                 return best
 
-    def train(self, iterations, learning_rate = 0.9, discount_rate = 0.9, decay_rate_normalized = 1):
+    def train(self, iterations, learning_rate = 0.7, discount_rate = 0.5, decay_rate_normalized = 1):
+        # Best params so far: .7, .5, 1
         decay_rate = decay_rate_normalized / (iterations * 5)
         self.epsilon = 1.0
         for episode in range(iterations):
             prev_states = [self.state_to_index(), self.state_to_index()]
             #                   second                   first
-            prev_action = 0
             t = 1
+            prev_move = (0, 0)
             while not self.game_over:
 
                 update = self.q_table_1 if self.current_turn == 'X' else self.q_table_2
@@ -158,13 +159,17 @@ class TicTacToeGUI:
                 new_state, reward, game_over = self.step(action)
                 update[prev_states[t]][action] = update[prev_states[t]][action] + learning_rate * (reward[t] + discount_rate * np.max(update[new_state]) - update[prev_states[t]][action])
                 # reward of prev action: Q[prev][action] = Q[prev][action] + alpha * (reward[prev] + gamma * max(Q[new]) - Q[prev][action])
+                # TODO: I think there is some bug in regard to rewarding victories
                 if reward[t] == 1:
-                    loser = self.q_table_1 if self.current_turn == 'X' else self.q_table_2
-                    loser[prev_states[(t+1)%2]][prev_action] = -1
+                    update[prev_states[t]][action] = 1
+                    loser = self.q_table_1 if self.current_turn == 'O' else self.q_table_2
+                    loser[prev_move[0]][prev_move[1]] = -1
                 elif len(action_space) == 1:
                     update[prev_states[t]][action] = 0
-                    self.q_table_2[prev_states[(t+1)%2]][prev_action] = 0
-                prev_states[t], prev_action = new_state, action
+                    other = self.q_table_1 if self.current_turn == 'O' else self.q_table_2
+                    other[prev_move[0]][prev_move[1]] = 0
+                prev_move = (prev_states[t], action)
+                prev_states[t] = new_state
                 t = (t+1) % 2
             self.reset()
             self.epsilon = np.exp(-decay_rate * episode)
@@ -244,7 +249,6 @@ class TicTacToeGUI:
     def play_against_trained(self, start=True):
         self.epsilon = 0 # never explore
         self.reset(True)
-        #table = self.q_table_2 if start else self.q_table_1
         turn_ai = 1 if start else 0
         if not start:
             self.step(self.sample_actions(self.action_space_get(), turn_ai))
@@ -292,7 +296,7 @@ class TicTacToeGUI:
 
 # To play a 3x3 game where 3 marks in a row are needed to win
 game = TicTacToeGUI(3, 3)
-game.train(50000)
+game.train(10000)
 game.play_against_trained()
 #game.run_game()
 
@@ -301,3 +305,5 @@ game.play_against_trained()
 # TODO: implement watch AI play
 # TODO: improve data-structures (use mode numpy?)
 # TODO: do something when game ends
+
+
